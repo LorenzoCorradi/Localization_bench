@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+*.out
+*.err
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Torch / ML
+*.pt
+*.pth
+*.ckpt
+
+# Results / cache
+results/
+retrieval_results/
+satellite_tiles/
+UAV-VisLoc
+outputs/
+runs/
+cache/
+tmp/
+
+# Images
+*.png
+*.jpg
+*.jpeg
+*.tif
+*.tiff
+
