@@ -1,0 +1,21 @@
+{
+  "DRONE_RESOLUTION": 0.094,
+  "MAP_RESOLUTION": 0.27,
+  "DRONE_SIZE": [3976, 2652],
+  "MAP_SIZE": [9774, 26762],
+  "DRONE_FOLDER": "UAV-VisLoc/01/drone",
+  "DRONE_CSV": "UAV-VisLoc/01/01.csv",
+  "SATELLITE_IMG": "UAV-VisLoc/01/satellite01.tif",
+  "TOP_K": 10,
+  "OVERLAP": 0.5,
+  "SAVE_RETRIEVAL_RESULTS": false,
+  "RESULTS_FOLDER": "retrieval_results",
+  "ROTATION_ANGLE": 0,
+  "RANSAC_INLIERS": 0.4,
+  "LIGHT_GLUE_MINUMUM_SCORE": 0.95,
+  "SHOW_LG_MATCHES": false,
+  "SHOW_CENTER_PREDICTION": false,
+  "RECALL_K": [1, 2, 5, 10],
+  "LOCALIZATION_THRESHOLDS": [5, 10, 20, 50],
+  "RESULTS_CSV": "results_config_2.csv"
+}

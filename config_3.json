@@ -10,12 +10,12 @@
   "OVERLAP": 0.75,
   "SAVE_RETRIEVAL_RESULTS": false,
   "RESULTS_FOLDER": "retrieval_results",
-  "ROTATION_ANGLE": 45,
+  "ROTATION_ANGLE": 0,
   "RANSAC_INLIERS": 0.4,
   "LIGHT_GLUE_MINUMUM_SCORE": 0.95,
   "SHOW_LG_MATCHES": false,
   "SHOW_CENTER_PREDICTION": false,
   "RECALL_K": [1, 2, 5, 10],
   "LOCALIZATION_THRESHOLDS": [5, 10, 20, 50],
-  "RESULTS_CSV": "results_overlap0_top10_rotation0.csv"
+  "RESULTS_CSV": "results_config_3.csv"
 }
