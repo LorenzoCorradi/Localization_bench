@@ -1,0 +1,27 @@
+===========building convnext===========
+using model_type: convnext_base as a backbone
+https://dl.fbaipublicfiles.com/convnext/convnext_base_22k_1k_224.pth
+
+Model:adjust model: handcraft convnext-base
+
+weight_infonce:1.0
+weight_fine:0.0
+infoNCE_logit:3.65
+pos_scale:0.1
+weight_channels:0.0
+
+{'input_size': (3, 224, 224), 'mean': (0.485, 0.456, 0.406), 'std': (0.229, 0.224, 0.225)}
+GPUs available: 1
+
+Image Size Query: (384, 384)
+Image Size Ground: (384, 384)
+Mean: (0.485, 0.456, 0.406)
+Std:  (0.229, 0.224, 0.225)
+
+Query Images Test: 4000
+Gallery Images Test: 200
+
+------------------------------[Evaluate]------------------------------
+Extract Features:
+Compute Scores:
+Recall@1: 95.6750 - Recall@5: 99.9250 - Recall@10: 100.0000 - Recall@top1: 99.8250 - AP: 96.6528
