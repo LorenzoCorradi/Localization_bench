@@ -159,7 +159,7 @@ def superpoint_lightglue(extractor, matcher,  tile, drone):
     matches= matches[matching_scores0[matches[:,0]] > LIGHT_GLUE_MINUMUM_SCORE]
 
     if matches.shape[0] <10:
-        return None, None
+        return None, None, None
     m_kpts0, m_kpts1 = kpts0[matches[..., 0]], kpts1[matches[..., 1]]
 
     pts0 = m_kpts0.detach().cpu().numpy().astype(np.float32)
@@ -180,7 +180,7 @@ def superpoint_lightglue(extractor, matcher,  tile, drone):
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
-    return H, len(inlier_matches)/len(matches)
+    return H, len(inlier_matches), len(matches)
 
 
 if __name__ == "__main__":
@@ -211,6 +211,7 @@ if __name__ == "__main__":
     RECALL_K = cfg["RECALL_K"]
     LOCALIZATION_THRESHOLDS = cfg["LOCALIZATION_THRESHOLDS"]
     RESULTS_CSV = cfg["RESULTS_CSV"]
+    ALPHA = 0.5
 
     print(f"Config loaded from {args.config}")
     print(f"Drone resolution: {DRONE_RESOLUTION}, Top-K: {TOP_K}")
@@ -259,7 +260,7 @@ if __name__ == "__main__":
 
     for _, row in df.iterrows():
         # count+=1
-        # if count !=139:
+        # if count %100 != 0:
         #     continue
         
         filename = row["filename"]
@@ -343,6 +344,9 @@ if __name__ == "__main__":
         pred_x = None
         pred_y = None
 
+        candidates = []
+        scores = []
+
         for i, idx in enumerate(top_indices):
             match = False
             satellite_tile = tiles[idx]
@@ -354,84 +358,88 @@ if __name__ == "__main__":
                 continue
 
             for angle in angles:
-                rotated_drone, M_rot = rotate_image(drone_img, angle)    
-                extractor = SuperPoint(max_num_keypoints=2048).eval().to(device)  
-                matcher = LightGlue(features="superpoint").eval().to(device)     
-                H, inlier_ratio = superpoint_lightglue(extractor, matcher, satellite_tile, rotated_drone)
+                rotated_drone, M_rot = rotate_image(drone_img, angle)       
+                H, inliers, matches = superpoint_lightglue(extractor, matcher, satellite_tile, rotated_drone)
 
                 if H is not None:
-                    print("Found homografy")
-                    h_drone, w_drone = rotated_drone.shape[:2]
-                    H_inv = np.linalg.inv(H) 
-                    h_drone, w_drone = drone_img.shape[:2]
-                    cx, cy = w_drone / 2, h_drone / 2
+                    scores.append(ALPHA * inliers/matches +  (1- ALPHA) * inliers)
+                    candidates.append((rotated_drone, M_rot, H, idx))
 
-                    center_pt = np.array([[[cx, cy]]], dtype=np.float32)
-                    center_rot = cv2.transform(center_pt, M_rot)[0,0]
-                    center_warp = cv2.perspectiveTransform(np.array([[[center_rot[0], center_rot[1]]]], dtype=np.float32), H_inv)[0,0]
+        if len(candidates) > 0:
+            print("Found homografy")
+            print(scores)
+            best = np.argmax(scores)
+            rotated_drone, M_rot, H,  idx = candidates[best]
 
-                    tile_x, tile_y = positions[idx]  
-                    tile_offset_x = tile_x - map_tile_size / 2
-                    tile_offset_y = tile_y - map_tile_size / 2
+            satellite_tile = tiles[idx]
 
-                    pred_col_global = center_warp[0] + tile_offset_x
-                    pred_row_global = center_warp[1] + tile_offset_y
+            h_drone, w_drone = rotated_drone.shape[:2]
+            H_inv = np.linalg.inv(H) 
+            h_drone, w_drone = drone_img.shape[:2]
+            cx, cy = w_drone / 2, h_drone / 2
 
-                    pred_x, pred_y = rasterio.transform.xy(transform, int(pred_row_global), int(pred_col_global), offset='center')
+            center_pt = np.array([[[cx, cy]]], dtype=np.float32)
+            center_rot = cv2.transform(center_pt, M_rot)[0,0]
+            center_warp = cv2.perspectiveTransform(np.array([[[center_rot[0], center_rot[1]]]], dtype=np.float32), H_inv)[0,0]
 
-                    geod = pyproj.Geod(ellps='WGS84')
-                    _, _, error = geod.inv(lon, lat, pred_x, pred_y)
+            tile_x, tile_y = positions[idx]  
+            tile_offset_x = tile_x - map_tile_size / 2
+            tile_offset_y = tile_y - map_tile_size / 2
 
-                    print("Coordinate prediction: ", pred_x, pred_y)
-                    print(f"Google Maps (Pred): https://www.google.com/maps/search/?api=1&query={pred_y},{pred_x}")
-                    print("Coordinate gt: ", lon, lat)
-                    print(f"Google Maps (GT): https://www.google.com/maps/search/?api=1&query={lat},{lon}")
-                    print(f"Error: {error:.2f} m")
+            pred_col_global = center_warp[0] + tile_offset_x
+            pred_row_global = center_warp[1] + tile_offset_y
+
+            pred_x, pred_y = rasterio.transform.xy(transform, int(pred_row_global), int(pred_col_global), offset='center')
+
+            geod = pyproj.Geod(ellps='WGS84')
+            _, _, error = geod.inv(lon, lat, pred_x, pred_y)
+
+            print("Coordinate prediction: ", pred_x, pred_y)
+            print(f"Google Maps (Pred): https://www.google.com/maps/search/?api=1&query={pred_y},{pred_x}")
+            print("Coordinate gt: ", lon, lat)
+            print(f"Google Maps (GT): https://www.google.com/maps/search/?api=1&query={lat},{lon}")
+            print(f"Error: {error:.2f} m")
 
 
-                    if SHOW_CENTER_PREDICTION:
-                        warped_drone = cv2.warpPerspective(rotated_drone, H_inv, (satellite_tile.shape[:2][1], satellite_tile.shape[:2][0]), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+            if SHOW_CENTER_PREDICTION:
+                warped_drone = cv2.warpPerspective(rotated_drone, H_inv, (satellite_tile.shape[:2][1], satellite_tile.shape[:2][0]), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
 
-                        px, py = cx + 800, cy + 800   
-                        point_pt = np.array([[px, py]], dtype=np.float32).reshape(-1,1,2)
-                        point_rot = cv2.transform(point_pt, M_rot)[0,0]
-                        point_warp = cv2.perspectiveTransform(np.array([[[point_rot[0], point_rot[1]]]], dtype=np.float32), H_inv)[0,0]
-                        
-                        drone_orig_disp = drone_img.copy()
-                        drone_rot_disp = rotated_drone.copy()
-                        warp_disp = warped_drone.copy()
-                        tile_disp = satellite_tile.copy()
+                px, py = cx + 800, cy + 800   
+                point_pt = np.array([[px, py]], dtype=np.float32).reshape(-1,1,2)
+                point_rot = cv2.transform(point_pt, M_rot)[0,0]
+                point_warp = cv2.perspectiveTransform(np.array([[[point_rot[0], point_rot[1]]]], dtype=np.float32), H_inv)[0,0]
+                
+                drone_orig_disp = drone_img.copy()
+                drone_rot_disp = rotated_drone.copy()
+                warp_disp = warped_drone.copy()
+                tile_disp = satellite_tile.copy()
 
-                        cv2.circle(drone_orig_disp, (int(cx), int(cy)), 10, (0,0,255), -1)
-                        cv2.circle(drone_rot_disp, (int(center_rot[0]), int(center_rot[1])), 10, (0,0,255), -1)
-                        cv2.circle(warp_disp, (int(center_warp[0]), int(center_warp[1])), 10, (0,0,255), -1)
-                        cv2.circle(tile_disp, (int(center_warp[0]), int(center_warp[1])), 10, (0,0,255), -1)
+                cv2.circle(drone_orig_disp, (int(cx), int(cy)), 10, (0,0,255), -1)
+                cv2.circle(drone_rot_disp, (int(center_rot[0]), int(center_rot[1])), 10, (0,0,255), -1)
+                cv2.circle(warp_disp, (int(center_warp[0]), int(center_warp[1])), 10, (0,0,255), -1)
+                cv2.circle(tile_disp, (int(center_warp[0]), int(center_warp[1])), 10, (0,0,255), -1)
 
-                        cv2.circle(drone_orig_disp, (int(px), int(py)), 10, (0,255,0), -1)
-                        cv2.circle(drone_rot_disp, (int(point_rot[0]), int(point_rot[1])), 10, (0,255,0), -1)
-                        cv2.circle(warp_disp, (int(point_warp[0]), int(point_warp[1])), 10, (0,255,0), -1)
-                        cv2.circle(tile_disp, (int(point_warp[0]), int(point_warp[1])), 10, (0,255,0), -1)
+                cv2.circle(drone_orig_disp, (int(px), int(py)), 10, (0,255,0), -1)
+                cv2.circle(drone_rot_disp, (int(point_rot[0]), int(point_rot[1])), 10, (0,255,0), -1)
+                cv2.circle(warp_disp, (int(point_warp[0]), int(point_warp[1])), 10, (0,255,0), -1)
+                cv2.circle(tile_disp, (int(point_warp[0]), int(point_warp[1])), 10, (0,255,0), -1)
 
-                        def resize_for_view(img, max_height=400):
-                            h, w = img.shape[:2]
-                            if h > max_height:
-                                scale = max_height / h
-                                return cv2.resize(img, (int(w*scale), int(h*scale)))
-                            return img
+                def resize_for_view(img, max_height=400):
+                    h, w = img.shape[:2]
+                    if h > max_height:
+                        scale = max_height / h
+                        return cv2.resize(img, (int(w*scale), int(h*scale)))
+                    return img
 
-                        drone_orig_disp = resize_for_view(drone_orig_disp)
-                        drone_rot_disp = resize_for_view(drone_rot_disp)
-                        warp_disp = resize_for_view(warp_disp)
-                        tile_disp = resize_for_view(tile_disp)
+                drone_orig_disp = resize_for_view(drone_orig_disp)
+                drone_rot_disp = resize_for_view(drone_rot_disp)
+                warp_disp = resize_for_view(warp_disp)
+                tile_disp = resize_for_view(tile_disp)
 
-                        vis = np.hstack([drone_orig_disp, drone_rot_disp, warp_disp, tile_disp])
-                        cv2.imshow("Original | Rotated | Warped | Tile", vis)
-                        cv2.waitKey(0)
-                        cv2.destroyAllWindows()
-                    break
-
-            if error is not None:
-                break
+                vis = np.hstack([drone_orig_disp, drone_rot_disp, warp_disp, tile_disp])
+                cv2.imshow("Original | Rotated | Warped | Tile", vis)
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
         
         results.append({
             "filename": filename,

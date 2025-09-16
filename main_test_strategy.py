@@ -258,9 +258,9 @@ if __name__ == "__main__":
     results = []
 
     for _, row in df.iterrows():
-        count+=1
-        if count %100 != 0:
-            continue
+        # count+=1
+        # if count %100 != 0:
+        #     continue
         
         filename = row["filename"]
         lat, lon = row["lat"], row["lon"]
@@ -357,9 +357,7 @@ if __name__ == "__main__":
                 continue
 
             for angle in angles:
-                rotated_drone, M_rot = rotate_image(drone_img, angle)    
-                extractor = SuperPoint(max_num_keypoints=2048).eval().to(device)  
-                matcher = LightGlue(features="superpoint").eval().to(device)     
+                rotated_drone, M_rot = rotate_image(drone_img, angle)     
                 H, inliers, matches = superpoint_lightglue(extractor, matcher, satellite_tile, rotated_drone)
 
                 if H is not None:

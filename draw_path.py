@@ -5,7 +5,7 @@ from rasterio.transform import rowcol
 import numpy as np
 
 # --- Config ---
-DRONE_CSV = "results_config_1.csv"           # CSV con colonne: filename, gt_lon, gt_lat, pred_lon, pred_lat
+DRONE_CSV = "results_config_8.csv"           # CSV with: filename, gt_lon, gt_lat, pred_lon, pred_lat
 SATELLITE_IMG = "UAV-VisLoc/01/satellite01.tif"
 OUTPUT_IMG = "satellite_with_gt_and_pred.png"
 
@@ -38,19 +38,25 @@ for _, row in df.iterrows():
     else:
         pred_pixels.append(None)
 
-# --- Draw GT path (rosso) ---
+# --- Draw GT path (rosso) con numero ---
+for i, pt in enumerate(gt_pixels):
+    cv2.circle(img_copy, pt, radius=10, color=(0, 0, 255), thickness=-1)
+    cv2.putText(img_copy, str(i), (pt[0]+10, pt[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0,0,255), 2)
+
 for i in range(1, len(gt_pixels)):
     cv2.line(img_copy, gt_pixels[i - 1], gt_pixels[i], color=(0, 0, 255), thickness=6)
-for pt in gt_pixels:
-    cv2.circle(img_copy, pt, radius=10, color=(0, 0, 255), thickness=-1)
 
-# --- Draw Prediction path (verde) ---
+# --- Draw Prediction path (verde) con numero ---
 pred_valid = [p for p in pred_pixels if p is not None]
+for i, pt in enumerate(pred_pixels):
+    if pt is not None:
+        cv2.circle(img_copy, pt, radius=8, color=(0, 255, 0), thickness=-1)
+        cv2.putText(img_copy, str(i), (pt[0]+10, pt[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,0), 2)
+
 for i in range(1, len(pred_pixels)):
     if pred_pixels[i - 1] is not None and pred_pixels[i] is not None:
         cv2.line(img_copy, pred_pixels[i - 1], pred_pixels[i], color=(0, 255, 0), thickness=4)
-for pt in pred_valid:
-    cv2.circle(img_copy, pt, radius=8, color=(0, 255, 0), thickness=-1)
+
 
 # --- Save result ---
 cv2.imwrite(OUTPUT_IMG, img_copy)
