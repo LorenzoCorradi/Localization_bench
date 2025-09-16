@@ -11,12 +11,15 @@ import csv
 import argparse
 import json
 from pathlib import Path
+from PIL import Image
 
 import sys
 sys.path.append(str(Path(__file__).parent / "CAMP"))
 from camp_inference import inference_CAMP
 from LightGlue.lightglue import LightGlue, SuperPoint, DISK
 from LightGlue.lightglue.utils import load_image, rbd
+sys.path.append(str(Path(__file__).parent / "RoMa"))
+from romatch import roma_outdoor
 
 # # Parameters
 # DRONE_RESOLUTION = 0.094   # m/px
@@ -219,9 +222,10 @@ if __name__ == "__main__":
     # MAIN ALGORITHM
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     df = pd.read_csv(DRONE_CSV)
-    extractor = SuperPoint(max_num_keypoints=2048).eval().to(device)
-    matcher = LightGlue(features="superpoint").eval().to(device)    
-
+    # extractor = SuperPoint(max_num_keypoints=2048).eval().to(device)
+    # matcher = LightGlue(features="superpoint").eval().to(device)    
+    roma_model = roma_outdoor(device=device)
+    
 
     with rasterio.open(SATELLITE_IMG) as src:
         res_x, res_y = src.res
@@ -235,7 +239,7 @@ if __name__ == "__main__":
         lat_dist = geod.line_length([0, 0], [0, res_y])
         MAP_RESOLUTION = min(lon_dist, lat_dist)
         print(MAP_RESOLUTION)
-        MAP_RESOLUTION = cfg["MAP_RESOLUTION"]
+        MAP_RESOLUTION = 0.27
     else:
         print(f"Error")
         exit(0)    
@@ -274,6 +278,8 @@ if __name__ == "__main__":
         drone_img = cv2.imread(str(drone_path))
         
         # GENERATE VECTOR FROM DRONE
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
         query_feature = inference_CAMP([drone_img])[0]
 
         scores = np.array([np.dot(query_feature.flatten(), tf.flatten()) for tf in tiles_features])
@@ -350,14 +356,42 @@ if __name__ == "__main__":
 
 
             # optimization
-            if not  found_matches_per_query[i]:
+            if not found_matches_per_query[i]:
                 continue
 
             for angle in angles:
-                rotated_drone, M_rot = rotate_image(drone_img, angle)    
-                extractor = SuperPoint(max_num_keypoints=2048).eval().to(device)  
-                matcher = LightGlue(features="superpoint").eval().to(device)     
-                H, inlier_ratio = superpoint_lightglue(extractor, matcher, satellite_tile, rotated_drone)
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+                rotated_drone, M_rot = rotate_image(drone_img, angle)
+
+                rotated_drone_pil = Image.fromarray(cv2.cvtColor(rotated_drone, cv2.COLOR_BGR2RGB))
+                satellite_tile_pil = Image.fromarray(cv2.cvtColor(satellite_tile, cv2.COLOR_BGR2RGB))
+
+                W_A, H_A = satellite_tile_pil.size
+                W_B, H_B =  rotated_drone_pil.size
+
+                warp, certainty = roma_model.match(satellite_tile_pil, rotated_drone_pil, device=device)
+
+                matches, certainty = roma_model.sample(warp, certainty)
+                kpts1, kpts2 = roma_model.to_pixel_coordinates(matches, H_A, W_A, H_B, W_B)
+
+                H, mask = cv2.findHomography(
+                    kpts1.cpu().numpy(),
+                    kpts2.cpu().numpy(),
+                    cv2.RANSAC, ransacReprojThreshold=3.0
+                )
+                num_inliers = int(mask.sum()) if mask is not None else 0
+                total_matches = len(matches)
+                inlier_ratio = num_inliers / total_matches if total_matches > 0 else 0
+
+                min_inliers = 20
+                min_ratio = 0.1
+
+                if num_inliers < min_inliers or inlier_ratio < min_ratio:
+                    print(f"❌ Omografia scartata ({num_inliers} inliers, ratio={inlier_ratio:.2f}).")
+                    H = None
+                else:
+                    print(f"✅ Omografia valida ({num_inliers} inliers, ratio={inlier_ratio:.2f}).")
 
                 if H is not None:
                     print("Found homografy")
@@ -428,8 +462,11 @@ if __name__ == "__main__":
                         cv2.imshow("Original | Rotated | Warped | Tile", vis)
                         cv2.waitKey(0)
                         cv2.destroyAllWindows()
+
                     break
 
+                del warp, certainty, matches, kpts1, kpts2, H, mask
+                torch.cuda.empty_cache()
             if error is not None:
                 break
         
